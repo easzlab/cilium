@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	pb "github.com/cilium/cilium/api/v1/flow"
+	"k8s.io/utils/strings/slices"
 )
 
 // ContextIdentifier describes the identification method of a transmission or
@@ -141,12 +142,24 @@ func ParseContextOptions(options Options) (*ContextOptions, error) {
 func sourceNamespaceContext(flow *pb.Flow) (context string) {
 	if flow.GetSource() != nil {
 		context = flow.GetSource().Namespace
+		if context == "" {
+			for _, label := range flow.GetSource().GetLabels() {
+				if strings.HasPrefix(label, "k8s:io.kubernetes.pod.namespace=") {
+					keyval := strings.Split(label, "=")
+					if len(keyval) == 2 {
+						context = keyval[1]
+						break
+					}
+				}
+			}
+		}
 	}
 	return
 }
 
 func sourceIdentityContext(flow *pb.Flow) (context string) {
 	if flow.GetSource() != nil {
+		context = strings.Join(handleReservedIdentityLabels(flow.GetSource().Labels), ",")
 		context = strings.Join(flow.GetSource().Labels, ",")
 	}
 	return
@@ -193,13 +206,31 @@ func sourceIPContext(flow *pb.Flow) (context string) {
 func destinationNamespaceContext(flow *pb.Flow) (context string) {
 	if flow.GetDestination() != nil {
 		context = flow.GetDestination().Namespace
+		if context == "" {
+			for _, label := range flow.GetDestination().GetLabels() {
+				if strings.HasPrefix(label, "k8s:io.kubernetes.pod.namespace=") {
+					keyval := strings.Split(label, "=")
+					if len(keyval) == 2 {
+						context = keyval[1]
+						break
+					}
+				}
+			}
+		}
 	}
 	return
 }
 
+func handleReservedIdentityLabels(labels []string) []string {
+	if slices.Contains(labels, "reserved:kube-apiserver") {
+		return []string{"reserved:kube-apiserver"}
+	}
+	return labels
+}
+
 func destinationIdentityContext(flow *pb.Flow) (context string) {
 	if flow.GetDestination() != nil {
-		context = strings.Join(flow.GetDestination().Labels, ",")
+		context = strings.Join(handleReservedIdentityLabels(flow.GetDestination().Labels), ",")
 	}
 	return
 }
